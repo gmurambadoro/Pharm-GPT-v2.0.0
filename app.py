@@ -5,14 +5,21 @@ import chromadb
 import click
 from bs4 import BeautifulSoup
 from chromadb import Settings
+from chromadb.utils.embedding_functions.ollama_embedding_function import OllamaEmbeddingFunction
 from chromadbx import UUIDGenerator
+from dotenv import load_dotenv
+
+load_dotenv()
 
 SRC_DIR_HTML = "/data/pharm/html/"
 SRC_DIR_TEXT = "/data/pharm/text/"
 
 CHROMA_PATH = "./chroma"
 
-chroma_client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings())
+chroma_client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings(allow_reset=False))
+
+embedding_func = OllamaEmbeddingFunction(model_name="nomic-embed-text:latest",
+                                         url="http://localhost:11434/api/embeddings")
 
 
 @click.group()
@@ -54,13 +61,14 @@ def index_documents(drop: bool, collection_name: str):
     """Stores text files in a ChromaDb vector database"""
     if drop:
         try:
-            click.echo(f"Dropping collection {collection_name}..")
+            click.echo(f"Resetting ChromaDB collection {collection_name}..")
             chroma_client.delete_collection(collection_name)
-            click.echo(f"Dropped collection {collection_name}!")
+            click.echo(f"Successfully reset ChromaDB collection {collection_name}.")
         except Exception as e:
             click.echo(f"ERROR: {e}")
 
-    collection = chroma_client.get_or_create_collection(name=collection_name)
+    collection = chroma_client.get_or_create_collection(name=collection_name,
+                                                        embedding_function=embedding_func)
 
     for (root, dirs, files) in os.walk(SRC_DIR_TEXT):
         with click.progressbar(files,
@@ -74,23 +82,35 @@ def index_documents(drop: bool, collection_name: str):
 
                     metadata = {
                         "source": filename.replace(SRC_DIR_TEXT, ""),
-                        "generic_name": os.path.dirname(filename).replace(SRC_DIR_TEXT, ""),
+                        "business": os.path.dirname(filename).replace(SRC_DIR_TEXT, ""),
+                        "generic": os.path.basename(filename).replace(".txt", ""),
                     }
 
                     collection.add(
                         documents=[content],
                         ids=UUIDGenerator(ids_len=1),
                         # embeddings=[],
-                        metadatas=[metadata]
+                        metadatas=[metadata],
+                        uris=[f"http://localhost:5500/html/{metadata['business']}/{metadata['generic']}.html"],
                     )
 
-    print(collection.id, drop)
 
-
-@click.command()
+@click.command(name="ask")
+@click.option('--collection-name', default="pharm")
 @click.argument("text", type=str)
-def query(text: str):
-    click.echo(text)
+def query(text: str, collection_name: str):
+    try:
+        if not str(text).strip():
+            raise Exception("No text provided.")
+
+        collection = chroma_client.get_collection(name=collection_name, embedding_function=embedding_func)
+
+        results = collection.query(query_texts=[text], n_results=3)
+
+        print(results)
+
+    except Exception as e:
+        click.echo(e)
 
 
 cli.add_command(generate_text_files)
