@@ -19,8 +19,7 @@ CHROMA_PATH = "./chroma"
 
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings(allow_reset=False))
 
-embedding_func = OllamaEmbeddingFunction(model_name="mxbai-embed-large:latest",
-                                         url="http://localhost:11434/api/embeddings")
+embedding_func = OllamaEmbeddingFunction(model_name="nomic-embed-text", url="http://localhost:11434/api/embeddings")
 
 
 @click.group()
