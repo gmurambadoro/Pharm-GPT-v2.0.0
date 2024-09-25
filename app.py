@@ -5,9 +5,10 @@ import chromadb
 import click
 from bs4 import BeautifulSoup
 from chromadb import Settings
+from chromadbx import UUIDGenerator
 
-SRC_DIR_HTML = "/data/pharm/html"
-SRC_DIR_TEXT = "/data/pharm/text"
+SRC_DIR_HTML = "/data/pharm/html/"
+SRC_DIR_TEXT = "/data/pharm/text/"
 
 CHROMA_PATH = "./chroma"
 
@@ -18,6 +19,7 @@ chroma_client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings())
 def cli():
     """Pharm-GPT v2.0.0"""
     pass
+
 
 @click.command(name="convert-html-to-text-files")
 def generate_text_files():
@@ -46,17 +48,41 @@ def generate_text_files():
 
 
 @click.command(name="index-docs")
-@click.option('--drop', default=False, is_flag=True, help="Drop the collection first before indexing")
+@click.option('--drop/--no-drop', default=True, is_flag=True, help="Drop the collection first before indexing")
 @click.argument("collection_name", default="pharm", type=str)
 def index_documents(drop: bool, collection_name: str):
     """Stores text files in a ChromaDb vector database"""
     if drop:
         try:
+            click.echo(f"Dropping collection {collection_name}..")
             chroma_client.delete_collection(collection_name)
+            click.echo(f"Dropped collection {collection_name}!")
         except Exception as e:
-            click.echo(e)
+            click.echo(f"ERROR: {e}")
 
     collection = chroma_client.get_or_create_collection(name=collection_name)
+
+    for (root, dirs, files) in os.walk(SRC_DIR_TEXT):
+        with click.progressbar(files,
+                               label=root, show_eta=True, show_percent=True,
+                               show_pos=True) as _files:
+            for file in _files:
+                filename = os.path.join(root, file)
+
+                with open(filename, 'r') as _file:
+                    content = _file.read()
+
+                    metadata = {
+                        "source": filename.replace(SRC_DIR_TEXT, ""),
+                        "generic_name": os.path.dirname(filename).replace(SRC_DIR_TEXT, ""),
+                    }
+
+                    collection.add(
+                        documents=[content],
+                        ids=UUIDGenerator(ids_len=1),
+                        # embeddings=[],
+                        metadatas=[metadata]
+                    )
 
     print(collection.id, drop)
 
@@ -70,8 +96,6 @@ def query(text: str):
 cli.add_command(generate_text_files)
 cli.add_command(index_documents)
 cli.add_command(query)
-
-
 
 if __name__ == "__main__":
     cli()
