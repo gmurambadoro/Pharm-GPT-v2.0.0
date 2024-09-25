@@ -5,6 +5,7 @@ import chromadb
 import click
 from bs4 import BeautifulSoup
 from chromadb import Settings
+from chromadb.api.types import IncludeEnum
 from chromadb.utils.embedding_functions.ollama_embedding_function import OllamaEmbeddingFunction
 from chromadbx import UUIDGenerator
 from dotenv import load_dotenv
@@ -18,7 +19,7 @@ CHROMA_PATH = "./chroma"
 
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings(allow_reset=False))
 
-embedding_func = OllamaEmbeddingFunction(model_name="nomic-embed-text:latest",
+embedding_func = OllamaEmbeddingFunction(model_name="mxbai-embed-large:latest",
                                          url="http://localhost:11434/api/embeddings")
 
 
@@ -71,6 +72,9 @@ def index_documents(drop: bool, collection_name: str):
                                                         embedding_function=embedding_func)
 
     for (root, dirs, files) in os.walk(SRC_DIR_TEXT):
+        if "/index" in root:  # ignore index directory
+            continue
+
         with click.progressbar(files,
                                label=root, show_eta=True, show_percent=True,
                                show_pos=True) as _files:
@@ -78,21 +82,24 @@ def index_documents(drop: bool, collection_name: str):
                 filename = os.path.join(root, file)
 
                 with open(filename, 'r') as _file:
-                    content = _file.read()
+                    try:
+                        content = _file.read()
 
-                    metadata = {
-                        "source": filename.replace(SRC_DIR_TEXT, ""),
-                        "business": os.path.dirname(filename).replace(SRC_DIR_TEXT, ""),
-                        "generic": os.path.basename(filename).replace(".txt", ""),
-                    }
+                        metadata = {
+                            "source": filename.replace(SRC_DIR_TEXT, ""),
+                            "business": os.path.dirname(filename).replace(SRC_DIR_TEXT, ""),
+                            "generic": os.path.basename(filename).replace(".txt", ""),
+                        }
 
-                    collection.add(
-                        documents=[content],
-                        ids=UUIDGenerator(ids_len=1),
-                        # embeddings=[],
-                        metadatas=[metadata],
-                        uris=[f"http://localhost:5500/html/{metadata['business']}/{metadata['generic']}.html"],
-                    )
+                        collection.add(
+                            documents=[content],
+                            ids=UUIDGenerator(ids_len=1),
+                            # embeddings=[],
+                            metadatas=[metadata],
+                            uris=[f"http://localhost:5500/html/{metadata['business']}/{metadata['generic']}.html"],
+                        )
+                    except Exception as e:
+                        click.echo(f"E: {e}")
 
 
 @click.command(name="ask")
@@ -105,7 +112,8 @@ def query(text: str, collection_name: str):
 
         collection = chroma_client.get_collection(name=collection_name, embedding_function=embedding_func)
 
-        results = collection.query(query_texts=[text], n_results=3)
+        results = collection.query(query_texts=[text], n_results=5,
+                                   include=[IncludeEnum("metadatas"), IncludeEnum("documents"), IncludeEnum("uris")])
 
         print(results)
 
