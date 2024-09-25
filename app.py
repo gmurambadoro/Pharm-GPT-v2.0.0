@@ -6,7 +6,7 @@ import click
 from bs4 import BeautifulSoup
 from chromadb import Settings
 from chromadb.api.types import IncludeEnum
-from chromadb.utils.embedding_functions.ollama_embedding_function import OllamaEmbeddingFunction
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 from chromadbx import UUIDGenerator
 from dotenv import load_dotenv
 
@@ -19,7 +19,7 @@ CHROMA_PATH = "./chroma"
 
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings(allow_reset=False))
 
-embedding_func = OllamaEmbeddingFunction(model_name="nomic-embed-text", url="http://localhost:11434/api/embeddings")
+embedding_func = DefaultEmbeddingFunction()
 
 
 @click.group()
