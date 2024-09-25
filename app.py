@@ -5,10 +5,11 @@ import chromadb
 import click
 from bs4 import BeautifulSoup
 from chromadb import Settings
-from chromadb.api.types import IncludeEnum
-from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
-from chromadbx import UUIDGenerator
 from dotenv import load_dotenv
+from langchain_chroma import Chroma
+from langchain_community.document_loaders import TextLoader
+from langchain_ollama import OllamaEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
@@ -17,9 +18,17 @@ SRC_DIR_TEXT = "/data/pharm/text/"
 
 CHROMA_PATH = "./chroma"
 
+COLLECTION_NAME = "pharm"
+
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH, settings=Settings(allow_reset=False))
 
-embedding_func = DefaultEmbeddingFunction()
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
+
+vectorstore = Chroma(
+    client=chroma_client,
+    collection_name=COLLECTION_NAME,
+    embedding_function=embeddings,
+)
 
 
 @click.group()
@@ -56,19 +65,16 @@ def generate_text_files():
 
 @click.command(name="index-docs")
 @click.option('--drop/--no-drop', default=True, is_flag=True, help="Drop the collection first before indexing")
-@click.argument("collection_name", default="pharm", type=str)
-def index_documents(drop: bool, collection_name: str):
+def index_documents(drop: bool):
     """Stores text files in a ChromaDb vector database"""
+    collection_name = COLLECTION_NAME
     if drop:
         try:
             click.echo(f"Resetting ChromaDB collection {collection_name}..")
-            chroma_client.delete_collection(collection_name)
+            vectorstore.reset_collection()
             click.echo(f"Successfully reset ChromaDB collection {collection_name}.")
         except Exception as e:
             click.echo(f"ERROR: {e}")
-
-    collection = chroma_client.get_or_create_collection(name=collection_name,
-                                                        embedding_function=embedding_func)
 
     for (root, dirs, files) in os.walk(SRC_DIR_TEXT):
         if "/index" in root:  # ignore index directory
@@ -78,44 +84,54 @@ def index_documents(drop: bool, collection_name: str):
                                label=root, show_eta=True, show_percent=True,
                                show_pos=True) as _files:
             for file in _files:
-                filename = os.path.join(root, file)
+                try:
+                    filename = os.path.join(root, file)
 
-                with open(filename, 'r') as _file:
-                    try:
-                        content = _file.read()
+                    loader = TextLoader(file_path=filename)
 
-                        metadata = {
-                            "source": filename.replace(SRC_DIR_TEXT, ""),
-                            "business": os.path.dirname(filename).replace(SRC_DIR_TEXT, ""),
-                            "generic": os.path.basename(filename).replace(".txt", ""),
-                        }
+                    docs = loader.load()
 
-                        collection.add(
-                            documents=[content],
-                            ids=UUIDGenerator(ids_len=1),
-                            # embeddings=[],
-                            metadatas=[metadata],
-                            uris=[f"http://localhost:5500/html/{metadata['business']}/{metadata['generic']}.html"],
-                        )
-                    except Exception as e:
-                        click.echo(f"E: {e}")
+                    text_splitter = RecursiveCharacterTextSplitter()
+
+                    all_chunks = text_splitter.split_documents(documents=docs)
+
+                    vectorstore.add_documents(all_chunks)
+
+                    # vectorstore.add_documents(
+                    #     ids=UUIDGenerator(ids_len=len(docs)),
+                    #     documents=list(map(lambda x: x.page_content, docs)),
+                    #     metadatas=list(map(lambda _: {
+                    #         "source": filename.replace(SRC_DIR_TEXT, ""),
+                    #         "business": os.path.dirname(filename).replace(SRC_DIR_TEXT, ""),
+                    #         "generic": os.path.basename(filename).replace(".txt", ""),
+                    #     }, docs))
+                    # )
+                except Exception as e:
+                    click.echo(f"E: {e}")
 
 
 @click.command(name="ask")
-@click.option('--collection-name', default="pharm")
 @click.argument("text", type=str)
-def query(text: str, collection_name: str):
+def query(text: str):
     try:
         if not str(text).strip():
             raise Exception("No text provided.")
+        #
+        # collection = chroma_client.get_collection(name=collection_name, embedding_function=embedding_func)
+        #
+        # # rag_context = collection.query(query_texts=[text], n_results=5)
+        # #
+        # # print(rag_context)
+        #
+        # llm = ChatOllama(model="llama3.1", temperature=0)
+        #
+        # print(response)
 
-        collection = chroma_client.get_collection(name=collection_name, embedding_function=embedding_func)
+        retriever = vectorstore.as_retriever()
 
-        results = collection.query(query_texts=[text], n_results=5,
-                                   include=[IncludeEnum("metadatas"), IncludeEnum("documents"), IncludeEnum("uris")])
+        response = retriever.invoke(text)
 
-        print(results)
-
+        print(response)
     except Exception as e:
         click.echo(e)
 
