@@ -6,9 +6,12 @@ import click
 from bs4 import BeautifulSoup
 from chromadb import Settings
 from dotenv import load_dotenv
+from langchain import hub
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import TextLoader
-from langchain_ollama import OllamaEmbeddings
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
@@ -116,20 +119,34 @@ def query(text: str):
     try:
         if not str(text).strip():
             raise Exception("No text provided.")
-        #
-        # collection = chroma_client.get_collection(name=collection_name, embedding_function=embedding_func)
-        #
-        # # rag_context = collection.query(query_texts=[text], n_results=5)
-        # #
-        # # print(rag_context)
-        #
-        # llm = ChatOllama(model="llama3.1", temperature=0)
-        #
-        # print(response)
 
-        retriever = vectorstore.as_retriever()
+        def format_docs(docs) -> str:
+            return "\n\n".join(doc.page_content for doc in docs)
 
-        response = retriever.invoke(text)
+        prompt = hub.pull("rlm/rag-prompt")
+
+        # template = """
+        # HUMAN
+        # You are an expert pharmacist with knowledge of a variety of pharmaceutical drugs and medication. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know. Use up to ten sentences maximum and keep the answer concise.
+        # Question: {question}
+        # Context: {context}
+        # Answer:tem
+        # """
+        #
+        # prompt = ChatPromptTemplate.from_template(template=template)
+
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+
+        llm = ChatOllama(model="llama3.1", temperature=0)
+
+        rag_chain = (
+                {"context": retriever | format_docs, "question": RunnablePassthrough()}
+                | prompt
+                | llm
+                | StrOutputParser()
+        )
+
+        response = rag_chain.invoke(text)
 
         print(response)
     except Exception as e:
