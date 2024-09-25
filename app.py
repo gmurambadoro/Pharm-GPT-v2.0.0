@@ -99,16 +99,6 @@ def index_documents(drop: bool):
                     all_chunks = text_splitter.split_documents(documents=docs)
 
                     vectorstore.add_documents(all_chunks)
-
-                    # vectorstore.add_documents(
-                    #     ids=UUIDGenerator(ids_len=len(docs)),
-                    #     documents=list(map(lambda x: x.page_content, docs)),
-                    #     metadatas=list(map(lambda _: {
-                    #         "source": filename.replace(SRC_DIR_TEXT, ""),
-                    #         "business": os.path.dirname(filename).replace(SRC_DIR_TEXT, ""),
-                    #         "generic": os.path.basename(filename).replace(".txt", ""),
-                    #     }, docs))
-                    # )
                 except Exception as e:
                     click.echo(f"E: {e}")
 
@@ -135,6 +125,7 @@ def query(text: str):
         #
         # prompt = ChatPromptTemplate.from_template(template=template)
 
+        # todo: Retriever does not seem to be fetching relevant documents from the passed in search
         retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
         llm = ChatOllama(model="llama3.1", temperature=0)
@@ -148,7 +139,7 @@ def query(text: str):
 
         response = rag_chain.invoke(text)
 
-        print(response)
+        click.echo(response)
     except Exception as e:
         click.echo(e)
 
