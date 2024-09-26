@@ -103,13 +103,9 @@ def index_documents(drop: bool):
                     click.echo(f"E: {e}")
 
 
-@click.command(name="ask")
-@click.argument("text", type=str)
-def query(text: str):
+@click.command(name="chat")
+def chat():
     try:
-        if not str(text).strip():
-            raise Exception("No text provided.")
-
         def format_docs(docs) -> str:
             return "\n\n".join(doc.page_content for doc in docs)
 
@@ -125,28 +121,44 @@ def query(text: str):
         #
         # prompt = ChatPromptTemplate.from_template(template=template)
 
-        # todo: Retriever does not seem to be fetching relevant documents from the passed in search
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+        click.echo("== Pharma-GPT v2.0.0 ==")
 
-        llm = ChatOllama(model="llama3.1", temperature=0)
+        exit_commands = ["quit", "exit", "bye"]
 
-        rag_chain = (
-                {"context": retriever | format_docs, "question": RunnablePassthrough()}
-                | prompt
-                | llm
-                | StrOutputParser()
-        )
+        click.echo(f"\nType {str(' ').join(list(map(lambda x: f'<{x}>', exit_commands)))} to exit.")
 
-        response = rag_chain.invoke(text)
+        while True:
+            text = str(input("\nAsk AI: ") or "").strip()
 
-        click.echo(response)
+            if not len(text):
+                click.echo("No text provided!")
+                continue
+
+            if text.lower() in exit_commands:
+                break
+
+            # todo: Retriever does not seem to be fetching relevant documents from the passed in search
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+
+            llm = ChatOllama(model="llama3.1", temperature=0)
+
+            rag_chain = (
+                    {"context": retriever | format_docs, "question": RunnablePassthrough()}
+                    | prompt
+                    | llm
+                    | StrOutputParser()
+            )
+
+            response = rag_chain.invoke(text)
+
+            click.echo(f"Pharma-GPT: {response}")
     except Exception as e:
         click.echo(e)
 
 
 cli.add_command(generate_text_files)
 cli.add_command(index_documents)
-cli.add_command(query)
+cli.add_command(chat)
 
 if __name__ == "__main__":
     cli()
